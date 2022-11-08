@@ -1,10 +1,11 @@
-# write your code here
-output = "Line {line}: {code} {message}"
+import sys, os
+
+output = "{file}: Line {line}: {code} {message}"
+
 
 class PEPError:
-    def __init__(self, code, message):
-        self.code = code
-        self.message = message
+    code = "0"
+    message = "Basic error"
 
     def check(self):
         pass
@@ -92,23 +93,70 @@ class BlankLinesError(PEPError):
                     num_blank = 0
         return res
 
-fname = input()
-lines = []
-with open(fname, 'r') as f:
-    lines = f.readlines()
 
-res = [[] for x in range(len(lines))]
-errors = [LineLenError, IndentError, SemicolonError, SpaceCommentsError, TODOError]
-for i, line in enumerate(lines):
-    for err in errors:
-        if err.check(line):
-            res[i].append(err)
+class PEPChecker:
+    single_line_errors = [LineLenError, IndentError, SemicolonError, SpaceCommentsError, TODOError]
+    multi_line_errors = [BlankLinesError]
+    errors = single_line_errors + multi_line_errors
 
-another_res = BlankLinesError.check(lines)
-for i,r in enumerate(res):
-    if i in another_res:
-        res[i].append(BlankLinesError)
+    def __init__(self, fname):
+        self.filename = fname
+        self.lines = []
+        self.error_dict = {}
+        with open(fname, 'r') as f:
+            self.lines = f.readlines()
+        self._check()
 
-for i, r in enumerate(res):
-    for err in r:
-        print(output.format(line=i+1, code=err.code, message=err.message))
+    def __getitem__(self, line_num) -> list:
+        """Return all errors in given line number """
+        result = []
+        for error, pages in self.error_dict.items():
+            if line_num in pages:
+                result.append(error)
+        return result
+
+    def __iter__(self):
+        self.current_index = 0
+        return self
+
+    def __next__(self):
+        if self.current_index < len(self.lines):
+            line_errors = self.__getitem__(self.current_index)
+            self.current_index += 1
+            return line_errors
+        raise StopIteration
+
+    def _check(self):
+        for i, line in enumerate(self.lines):
+            for error in self.errors:
+                self.error_dict[error] = self.check_error(error)
+
+    def check_error(self, error: PEPError) -> list:
+        if isinstance(error(), tuple(PEPChecker.multi_line_errors)):
+            return error.check(self.lines)
+
+        error_line_nums = []
+        for i, line in enumerate(self.lines):
+            if error.check(line):
+                error_line_nums.append(i)
+        return error_line_nums
+
+    @staticmethod
+    def check_line(line, error):
+        if not isinstance(error(), tuple(PEPChecker.single_line_errors)):
+            raise TypeError(message=f"Error {type(error)} doesn't exist or more than one line requires.")
+        return error.check(line)
+
+
+arg = sys.argv[1]
+files = []
+if os.path.isfile(arg):
+    files.append(arg)
+else:
+    files = [os.path.join(arg, file) for file in os.listdir(arg) if os.path.basename(file).endswith('.py') and "tests.py" not in file]
+
+for file in files:
+    checker = PEPChecker(file)
+    for line_num, errors in enumerate(checker):
+        for err in errors:
+            print(output.format(file=file, line=line_num+1, code=err.code, message=err.message))
